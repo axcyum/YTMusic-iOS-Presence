@@ -4,7 +4,7 @@ iPhone内のYouTube MusicからDiscord Social SDKへ直接Rich Presenceを送る
 
 **現在の状態：公式Discord Social SDK 1.10.19337を用い、GitHub ActionsでiOS arm64のコンパイルと未署名IPA生成に成功しました。OAuthの往復、Discordへの実送信、実機でのバックグラウンド動作は未検証です。インストール前に全ネストコードの再署名が必要です。**
 
-確認済みビルド：[Actions run 38557547261](https://github.com/axcyum/YTMusicPresence/actions/runs/38557547261)。入力は提供されたYouTube Music 9.26.2 IPAと公式SDKのrelease用iOS xcframeworkです。
+診断ログ付き版のビルド：[Actions run 38559399293](https://github.com/axcyum/YTMusicPresence/actions/runs/38559399293)。入力は提供されたYouTube Music 9.26.2 IPAと公式SDKのrelease用iOS xcframeworkです。
 
 ## 構成
 
@@ -122,6 +122,8 @@ python3 -m unittest discover -s tests -v
 ```
 
 これらはMach-Oヘッダ改変とIPAの保持・組み込みのテストです。iOSやDiscordの動作テストではありません。合成バイナリはテスト用の一時ディレクトリだけに作成します。
+
+ActionsではmacOSのFoundationを使って実際のログ保存コードも実行し、認証情報の伏せ字、JSONLの読み戻し、並行書き込み、Unicode文字列、1 MiBでのローテーションを検証しています。iOSのログ保存コードはiOS arm64としてコンパイルしていますが、Files・共有画面の動作は実機確認が必要です。
 
 ## 参考資料
 
