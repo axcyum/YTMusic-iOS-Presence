@@ -6,11 +6,10 @@
 </p>
 
 <h1 align="center">YTMusic iOS DiscordRPC</h1>
-
 <p align="center">
-  iOS版YouTube Musicの再生情報をDiscord Social SDK経由でRich Presenceへ送信するObjective-C++ dylib。
+iOS版YouTube Musicの再生情報をDiscord Social SDK経由でRich Presenceへ送信するObjective-C++ dylib。<br>
+<a href="https://github.com/dayanch96/YTMusicUltimate">YoutubeMusicUltimate</a> を一部参考に作成されました。
 </p>
-
 ## pictures
 <img width="1035" height="898" alt="{B85044D0-B601-4DA2-A879-D8CA8B5FAEE1}" src="https://github.com/user-attachments/assets/9766ae2a-b2f1-4df2-be4c-700fc678ac1f" />
 
