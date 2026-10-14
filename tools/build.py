@@ -43,7 +43,7 @@ def main():
     run(['xcrun','--sdk','iphoneos','clang++','-dynamiclib','-std=c++20','-fobjc-arc','-arch','arm64',
         '-isysroot',sysroot,'-miphoneos-version-min='+config['minimum_ios'],
         '-I'+str(build),'-F'+str(fw.parent),'-framework','discord_partner_sdk',
-        '-framework','Foundation','-framework','UIKit','-framework','MediaPlayer','-framework','Security',
+        '-framework','Foundation','-framework','UIKit','-framework','CoreGraphics','-framework','MediaPlayer','-framework','Security',
         '-Wl,-install_name,@rpath/YTMusicPresence.dylib','-Wl,-rpath,@loader_path',
         str(root/'src'/'Presence.mm'),str(root/'src'/'Logger.mm'),'-o',str(dylib)])
     run(['otool','-L',str(dylib)])
