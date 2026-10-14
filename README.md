@@ -2,9 +2,9 @@
 
 iPhone内のYouTube MusicからDiscord Social SDKへ直接Rich Presenceを送る、独立したインジェクション用dylibの研究用実装です。PCや中継サーバーを稼働させる構成ではありません。
 
-**現在の状態：公式Discord Social SDK 1.10.19337でiOS arm64のコンパイルと未署名IPA生成を確認済みです。診断ログ付きv2では利用者からPresence更新の改善報告を受けています。サムネイル対応v3の実機での画像表示は確認待ちです。インストール前に全ネストコードの再署名が必要です。**
+**現在の状態：公式Discord Social SDK 1.10.19337でiOS arm64のコンパイルと未署名IPA生成を確認済みです。診断ログ付きv2では利用者からPresence更新の改善報告を受けています。v3の実機ログでは画像取得が失敗し、画像なしのPresence送信は成功していました。v4で画像の取得経路を追加しています。インストール前に全ネストコードの再署名が必要です。**
 
-サムネイル対応版のビルド：[Actions run 38560641960](https://github.com/axcyum/YTMusicPresence/actions/runs/38560641960)。入力は提供されたYouTube Music 9.26.2 IPAと公式SDKのrelease用iOS xcframeworkです。
+サムネイル取得修正版のビルド：[Actions run 38561712731](https://github.com/axcyum/YTMusicPresence/actions/runs/38561712731)。入力は提供されたYouTube Music 9.26.2 IPAと公式SDKのrelease用iOS xcframeworkです。
 
 ## 構成
 
@@ -23,6 +23,10 @@ iPhone内のYouTube MusicからDiscord Social SDKへ直接Rich Presenceを送る
 公式Social SDKは外部画像URLを `ActivityAssets::SetLargeImage` に指定できます。Developer Portalへ曲ごとに画像を登録する必要はなく、この機能のための追加OAuthスコープは要求しません。
 
 YouTube Musicの `YTPlayerViewController → playerResponse → playerData → videoDetails → thumbnail → thumbnailsArray` からサムネイルURLを取得します。Now Playingの曲名とモデルの曲名が一致した時だけ使用し、曲変更時に前の画像を誤って送ることを避けます。画像一覧が空なら、確認した動画IDから標準YouTubeサムネイルの公開URLを作ります。既知のYouTube/Google画像ホストのHTTPS URLのみを使用します。ローカル画像のアップロードは行いません。
+
+v4では、`playerResponse.videoDetails`という別構造にも対応し、曲のデータを読み込む`YTIVideoDetails`/`YTIPlayerResponse`のsetterから画像情報を取得する経路を追加しました。保持するのは直近24件の曲名・作者・画像URLのスナップショットで、プレイヤー自体は保持しません。キャッシュは曲名と作者が一致した時に使用します。Now Playingに動画IDまたはYouTubeのwatch URLが提供された場合は、そこからもサムネイルを解決します。
+
+画像が取得できない時は`artwork_missing_details`へ、各モデルのクラス名、モデル内とNow Playingの曲名、画像一覧の件数、動画識別子の有無を記録します。動画データ取得フックの設置結果は`artwork_model_hooks`へ記録します。提供ログから確定できるのは「v3は画像URLを取得できず、画像を送信していなかった」という点で、欠落していた具体的なモデルの段階はv4の実機ログで確認します。
 
 設定メニューの「サムネイルを非表示 / 表示」で切り替えられます。画像が原因で送信内容を拒否された場合は画像なしで再試行し、曲情報の共有を維持します。「共有を再開」で画像送信も再試行します。画像URLの取得結果・送信・画像なしへのフォールバックはDocumentsの診断ログへ記録します。
 
