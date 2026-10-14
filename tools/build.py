@@ -45,7 +45,7 @@ def main():
         '-isysroot',sysroot,'-miphoneos-version-min='+config['minimum_ios'],
         '-I'+str(build),'-F'+str(fw.parent),'-framework','discord_partner_sdk',
         '-framework','Foundation','-framework','UIKit','-framework','CoreGraphics','-framework','MediaPlayer','-framework','Security',
-        '-Wl,-install_name,@rpath/YTMusicPresence.dylib','-Wl,-rpath,@loader_path',
+        '-Wl,-install_name,@rpath/YTMusicPresence.dylib','-Wl,-rpath,@loader_path','-Wl,-headerpad_max_install_names',
         str(root/'src'/'Presence.mm'),str(root/'src'/'Logger.mm'),str(root/'src'/'Artwork.mm'),'-o',str(dylib)])
     run(['otool','-L',str(dylib)])
     if a.ipa:

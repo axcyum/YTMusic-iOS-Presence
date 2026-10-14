@@ -259,3 +259,23 @@ iOS実機とDiscord間の認証・表示・バックグラウンド動作は、�
 本プロジェクトのソースコードは[GNU GPL v3](LICENSE)で配布します。
 
 YouTube Music本体とDiscord Social SDKには、それぞれのライセンス・利用条件が適用されます。
+
+## Jailbreak向け deb（0.4.1）
+
+GitHub Actions の `Build iOS deb packages` で3形式を同時生成します。
+
+| ファイル末尾 | 環境 | 配置先 |
+| --- | --- | --- |
+| `~iphoneos-arm.deb` | Rootful | `/Library/MobileSubstrate/DynamicLibraries/` |
+| `~iphoneos-arm64.deb` | Rootless | `/var/jb/Library/MobileSubstrate/DynamicLibraries/` |
+| `~iphoneos-arm64e.deb` | RootHide | bootstrap内の `/Library/MobileSubstrate/DynamicLibraries/` |
+
+これらはパッケージ環境の識別子です。実行コードは公式SDKが提供するarm64のiOSデバイス用で、32bit対応やarm64e専用コードを意味しません。iOS 16.0以上、YouTube Musicとtweak injection環境が必要です。RootHideではYouTube Musicへの注入を有効にしてください。
+
+SDKはtweak隣接の `YTMusicPresenceResources` に同梱し、`@loader_path` で参照します。固定されたjailbreak rootのパスには依存しません。ビルド後にtweakとSDKへad-hoc署名を行い、Debianの `dpkg-deb` で3種類を展開・検査します。ソースのGPLライセンスとSDKのLicense-Noticesをパッケージに同梱します。
+
+環境に合う1種類だけをインストールしてYouTube Musicを完全終了・再起動してください。**YTMusicPresence組み込み済みIPAとdebを同時に使わないでください**（二重フック・SDKの競合を避けるため）。YTMusicUltimateだけを導入した元のIPAは対象です。debにはYouTube Music本体やYTMusicUltimateは含みません。
+
+debはアプリ本体のInfo.plistや署名を変更しません。Documentsへのログ保存とアプリ内のログ共有は利用できますが、FilesアプリでDocumentsを公開する設定はIPAビルド側のみです。OAuth・サムネイル・各jailbreak環境での実機動作は別途確認が必要です。
+
+配置方式の参考: [Theos Rootless](https://theos.dev/docs/rootless)、[RootHide Developer](https://github.com/roothide/Developer)。

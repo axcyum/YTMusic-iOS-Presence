@@ -1,0 +1,85 @@
+name: Build iOS deb packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version
+        required: true
+        default: '0.4.1'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test packaging and native components
+        run: |
+          python -m unittest discover -s tests -v
+          clang++ -std=c++20 -fobjc-arc -DYTMP_LOG_TESTING -framework Foundation src/Logger.mm tests/logger_test.mm -o "$RUNNER_TEMP/logger-test"
+          "$RUNNER_TEMP/logger-test"
+          clang++ -std=c++20 -fobjc-arc -DYTMP_LOG_TESTING -framework Foundation src/Artwork.mm src/Logger.mm tests/artwork_test.mm -o "$RUNNER_TEMP/artwork-test"
+          "$RUNNER_TEMP/artwork-test"
+      - name: Download official SDK from private inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p work/input work/sdk
+          gh release download build-inputs --pattern discord-sdk.zip --dir work/input
+          ditto -x -k work/input/discord-sdk.zip work/sdk
+      - name: Compile and package all three layouts
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          def one(pattern):
+              found = [p for p in Path('work/sdk').rglob(pattern) if '__MACOSX' not in p.parts]
+              if len(found) != 1:
+                  raise SystemExit(f'Expected exactly one {pattern}: {found}')
+              return str(found[0])
+          sdk = one('discord_partner_sdk.xcframework')
+          notices = one('License-Notices.txt')
+          subprocess.run([sys.executable, 'tools/build.py', '--sdk', sdk], check=True)
+          subprocess.run([sys.executable, 'tools/package_deb.py', '--sdk', sdk,
+                          '--notices', notices, '--version', os.environ['PACKAGE_VERSION']], check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YTMusicPresence-debs
+          path: build/debs/*
+          if-no-files-found: error
+          retention-days: 14
+
+  verify:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: YTMusicPresence-debs
+          path: packages
+      - name: Verify archives with Debian tools
+        working-directory: packages
+        run: |
+          sha256sum --check SHA256SUMS
+          for package in *.deb; do
+            dpkg-deb --info "$package"
+            dpkg-deb --contents "$package"
+            mkdir unpacked
+            dpkg-deb --extract "$package" unpacked
+            dpkg-deb --control "$package" unpacked/DEBIAN
+            (cd unpacked && md5sum --check DEBIAN/md5sums)
+            rm -r unpacked
+          done
