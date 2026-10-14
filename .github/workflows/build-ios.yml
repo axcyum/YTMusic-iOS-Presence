@@ -1,0 +1,56 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test IPA packaging tools
+        run: python -m unittest discover -s tests -v
+      - name: Download private build inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p work/input
+          gh release download build-inputs --pattern 'discord-sdk.zip' --pattern 'YouTubeMusic_9.26.2.ipa' --dir work/input
+      - name: Expand official SDK and locate xcframework
+        id: sdk
+        run: |
+          mkdir -p work/sdk
+          ditto -x -k work/input/discord-sdk.zip work/sdk
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          frameworks = [p.resolve() for p in Path('work/sdk').rglob('discord_partner_sdk.xcframework')
+                        if '__MACOSX' not in p.parts]
+          if len(frameworks) != 1:
+              raise SystemExit('Expected exactly one discord_partner_sdk.xcframework in discord-sdk.zip')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'path={frameworks[0]}\n')
+          PY
+      - name: Compile tweak and package unsigned IPA
+        env:
+          DISCORD_SDK_PATH: ${{ steps.sdk.outputs.path }}
+        run: |
+          python tools/build.py --sdk "$DISCORD_SDK_PATH" --ipa work/input/YouTubeMusic_9.26.2.ipa --out build/YouTubeMusic_9.26.2_Presence_unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YTMusicPresence-unsigned
+          path: |
+            build/YouTubeMusic_9.26.2_Presence_unsigned.ipa
+            build/YouTubeMusic_9.26.2_Presence_unsigned.report.json
+          if-no-files-found: error
+          retention-days: 7

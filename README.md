@@ -21,13 +21,32 @@ Application ID：`1559887091171852310`。`config.json`を変更して別のア�
 ## Discordで必要な設定
 
 1. [Developer Portal](https://discord.com/developers/applications)で上記アプリを開く。
-2. OAuth2の **Public Client** を有効にする。
-3. Redirect URIに **`discord-1559887091171852310:/authorize/callback`** を追加。
-4. Discord Social SDKのDownloadsで、iOSを含む公式C++ SDKを取得する。`discord_partner_sdk.xcframework`が必要。アプリにSocial SDKの利用権限が付いていることも確認する。
-5. Rich PresenceのArt Assetsへ`ytmusic`というキーでアイコンを登録する。
-6. Discord側のアクティビティ共有・アプリ連携を有効にする。
+2. 左側の **Discord Social SDK → Getting Started** で初期設定を完了し、Social SDKを有効にする。公式の現行ガイドではDeveloper Teamに所属したアプリを使用します。既存アプリの所属とアクセス権も確認してください。
+3. OAuth2ページの **Public Client** を有効にする。これは「URLジェネレーター」のスコープ一覧にあるチェック項目ではありません。OAuth2ページの設定領域を確認してください。項目が見つからなければ、Social SDKの初期設定とTeam所属を確認する。非表示の原因は画面全体やアプリ設定を確認しないと断定できません。
+4. Redirect URIに **`discord-1559887091171852310:/authorize/callback`** を追加。
+5. Discord Social SDKのDownloadsで、iOSを含む公式C++ SDKを取得する。`discord_partner_sdk.xcframework`が必要。アプリにSocial SDKの利用権限が付いていることも確認する。
+6. Rich PresenceのArt Assetsへ`ytmusic`というキーでアイコンを登録する。
+7. Discord側のアクティビティ共有・アプリ連携を有効にする。
+
+OAuth2 URLジェネレーターで`rpc`や`rpc.activities.write`を選択・招待URLを作成する作業は、この実装では不要です。認証用のスコープとPKCEはSDK呼び出しが指定します。
 
 SDKは公式配布物を利用してください。このリポジトリには含めません。iOSでは未認証RPCは使えないため、SDKによるOAuth認証を使います。SDKのiOS対応だけで、この第三者アプリへの注入構成やListening表示が保証されるものではありません。実機での検証が必要です。
+
+## GitHub Actionsでビルドする場合
+
+ワークフロー `.github/workflows/build-ios.yml` を用意しています。GitHubのmacOS runnerを使うため、自分のMacは不要です。SDK未取得のため、現時点ではワークフローのiOSビルドは未実行です。
+
+1. この**非公開リポジトリ**のReleasesで、タグ`build-inputs`のReleaseを作成する。
+2. 次の2ファイルをRelease assetsへ追加してPublishする。
+   - 提示されたIPAをそのまま `YouTubeMusic_9.26.2.ipa` という名前で追加。
+   - 公式iOS SDKを含むZIPを `discord-sdk.zip` にリネームして追加。ZIP内に `discord_partner_sdk.xcframework` が1つ入っている必要がある。Windowsでxcframeworkを展開し直す必要はありません。
+3. **Actions → Build iOS IPA → Run workflow → main** で実行する。
+4. 成功した実行のArtifactsから **YTMusicPresence-unsigned** をダウンロード。
+5. IPAを全ネストコードごと再署名し、iPhoneへインストールする。
+
+入力ファイルはGitのソース管理に追加しません。この方式ではSecretsの手動登録、Bot Token、Client Secret、個人用GitHub Tokenも不要です。ワークフロー内のGitHub TokenはGitHubが自動的に渡します。
+
+コンパイルは公式SDKとの最初の互換性確認にもなります。ビルドが失敗した場合は、その実行のエラーログでSDKヘッダやフレームワーク形式に合わせた修正が必要です。ワークフローの追加だけでコンパイルや動作を確認済みにはなりません。
 
 ## MacでのビルドとIPAへの組み込み
 
