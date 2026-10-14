@@ -124,7 +124,7 @@ static void TokenDelete(void) {
     if ((self = [super init])) {
         self.status = @"未連携"; tokens = TokenRead();
         YTMPRememberSecret(Text(tokens[@"access"])); YTMPRememberSecret(Text(tokens[@"refresh"]));
-        YTMPLog(@"startup",@{@"build":@"cover-v3",@"app_id":Account,
+        YTMPLog(@"startup",@{@"build":@"cover-v4",@"app_id":Account,
             @"bundle_id":NSBundle.mainBundle.bundleIdentifier ?: @"",@"saved_token":@(tokens != nil)});
         client = std::make_shared<discordpp::Client>();
         client->SetApplicationId(YTMP_APPLICATION_ID);
@@ -301,7 +301,7 @@ static void TokenDelete(void) {
     double start = sampleStart;
     if (inFlight || blockedPayload || now < nextAttempt || now - lastSend < 15) return;
     if ([self coverEnabled] && !omitArtwork && (now-lastCoverCheck >= 1 || ![title isEqual:coverTitle])) {
-        NSString *url = YTMPCoverURL(title);
+        NSString *url = YTMPCoverURL(title,artist,info[MPNowPlayingInfoPropertyExternalContentIdentifier]);
         if (![url ?: @"" isEqual:cachedCover ?: @""] || ![title isEqual:coverTitle]) {
             YTMPLog(@"artwork_lookup",@{@"title":title,@"url":url ?: @"",@"found":@(url.length>0)});
         }
@@ -388,6 +388,7 @@ static void TokenDelete(void) {
 
 // Chain through the current IMP, preserving existing injected hooks.
 static IMP Replace(Class cls, SEL sel, IMP replacement) {
+    if (cls) [cls instancesRespondToSelector:sel]; // Resolve lazy protobuf accessors.
     Method m = class_getInstanceMethod(cls,sel); if (!m) return NULL;
     IMP old = method_getImplementation(m);
     if (!class_addMethod(cls,sel,replacement,method_getTypeEncoding(m)))
@@ -475,6 +476,21 @@ static void (*OriginalMutatedTime)(id,SEL,id,id);
 static void MutatedTimeHook(id self,SEL sel,id video,id time) {
     OriginalMutatedTime(self,sel,video,time); YTMPObservePlayer(self);
 }
+static void (*OriginalDetailsThumbnail)(id,SEL,id);
+static void DetailsThumbnailHook(id self,SEL sel,id value) {
+    OriginalDetailsThumbnail(self,sel,value);
+    dispatch_async(dispatch_get_main_queue(),^{YTMPObserveVideoDetails(self);});
+}
+static void (*OriginalDetailsTitle)(id,SEL,id);
+static void DetailsTitleHook(id self,SEL sel,id value) {
+    OriginalDetailsTitle(self,sel,value);
+    dispatch_async(dispatch_get_main_queue(),^{YTMPObserveVideoDetails(self);});
+}
+static void (*OriginalResponseDetails)(id,SEL,id);
+static void ResponseDetailsHook(id self,SEL sel,id value) {
+    OriginalResponseDetails(self,sel,value);
+    dispatch_async(dispatch_get_main_queue(),^{YTMPObserveVideoDetails(value);});
+}
 __attribute__((constructor)) static void Start(void) {
     @autoreleasepool {
         if (![NSBundle.mainBundle.infoDictionary[@"CFBundleExecutable"] isEqual:@"YouTubeMusic"]) return;
@@ -485,6 +501,12 @@ __attribute__((constructor)) static void Start(void) {
             OriginalMutatedTime = (decltype(OriginalMutatedTime))Replace(playerClass,NSSelectorFromString(@"potentiallyMutatedSingleVideo:currentVideoTimeDidChange:"),(IMP)MutatedTimeHook);
             YTMPLog(@"artwork_hooks",@{@"viewDidLoad":@(OriginalPlayerLoad != NULL),
                 @"timeChanged":@(OriginalPlayerTime != NULL),@"mutatedTimeChanged":@(OriginalMutatedTime != NULL)});
+            Class detailsClass=NSClassFromString(@"YTIVideoDetails");
+            OriginalDetailsThumbnail=(decltype(OriginalDetailsThumbnail))Replace(detailsClass,NSSelectorFromString(@"setThumbnail:"),(IMP)DetailsThumbnailHook);
+            OriginalDetailsTitle=(decltype(OriginalDetailsTitle))Replace(detailsClass,NSSelectorFromString(@"setTitle:"),(IMP)DetailsTitleHook);
+            OriginalResponseDetails=(decltype(OriginalResponseDetails))Replace(NSClassFromString(@"YTIPlayerResponse"),NSSelectorFromString(@"setVideoDetails:"),(IMP)ResponseDetailsHook);
+            YTMPLog(@"artwork_model_hooks",@{@"thumbnail":@(OriginalDetailsThumbnail != NULL),
+                @"title":@(OriginalDetailsTitle != NULL),@"videoDetails":@(OriginalResponseDetails != NULL)});
             OriginalInfo = (decltype(OriginalInfo))Replace(MPNowPlayingInfoCenter.class,
                 @selector(setNowPlayingInfo:),(IMP)InfoHook);
             OriginalState = (decltype(OriginalState))Replace(MPNowPlayingInfoCenter.class,

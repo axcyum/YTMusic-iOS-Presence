@@ -25,7 +25,7 @@ jobs:
           "$RUNNER_TEMP/logger-test"
       - name: Test native artwork resolver
         run: |
-          clang++ -std=c++20 -fobjc-arc -framework Foundation src/Artwork.mm src/Logger.mm tests/artwork_test.mm -o "$RUNNER_TEMP/artwork-test"
+          clang++ -std=c++20 -fobjc-arc -DYTMP_LOG_TESTING -framework Foundation src/Artwork.mm src/Logger.mm tests/artwork_test.mm -o "$RUNNER_TEMP/artwork-test"
           "$RUNNER_TEMP/artwork-test"
       - name: Download private build inputs
         env:

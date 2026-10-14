@@ -1,10 +1,11 @@
 #import <Foundation/Foundation.h>
 #import "../src/Artwork.h"
+#import "../src/Logger.h"
 #include <cassert>
 
 @interface Model : NSObject
 @property(nonatomic,strong) id playerResponse, playerData, videoDetails, thumbnail, thumbnailsArray;
-@property(nonatomic,copy) NSString *title, *currentVideoID, *URL;
+@property(nonatomic,copy) NSString *title, *currentVideoID, *URL, *author;
 @end
 @implementation Model
 @end
@@ -20,6 +21,8 @@ static Model *Player(NSString *title,NSArray *urls) {
 }
 int main(void) {
     @autoreleasepool {
+        NSURL *logDir=[NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString] isDirectory:YES];
+        YTMPSetTestLogDirectory(logDir);
         assert([YTMPValidateCoverURL(@"https://lh3.googleusercontent.com/album=w544-h544") length]);
         assert([YTMPValidateCoverURL([NSURL URLWithString:@"https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"]) length]);
         for (NSString *url in @[@"http://i.ytimg.com/cover.jpg",@"https://ytimg.com.evil.example/cover.jpg",
@@ -40,6 +43,21 @@ int main(void) {
         assert([YTMPResolveCover(Player(@"Cafe\u0301",@[@"https://i.ytimg.com/a.jpg"]),@"Café") length]);
         Model *next=Player(@"Next",@[@"https://i.ytimg.com/next.jpg"]);
         assert([YTMPResolveCover(next,@"Next") isEqual:@"https://i.ytimg.com/next.jpg"]);
+        Model *directPlayer=[Model new], *directResponse=[Model new];
+        directPlayer.playerResponse=directResponse;
+        directResponse.videoDetails=((Model *)((Model *)((Model *)next.playerResponse).playerData).videoDetails);
+        assert([YTMPResolveCover(directPlayer,@"Next") isEqual:@"https://i.ytimg.com/next.jpg"]);
+        assert([YTMPResolveIdentifier(@"https://music.youtube.com/watch?v=abcdefghijk") isEqual:@"https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"]);
+        assert(!YTMPResolveIdentifier(@"https://evil.example/watch?v=abcdefghijk"));
+        assert(!YTMPResolveIdentifier(@"https://youtube.com/watch?v=invalid"));
+        Model *cached=(Model *)directResponse.videoDetails; cached.author=@"Artist";
+        YTMPObserveVideoDetails(cached);
+        // Metadata can be captured even when there is no live player controller.
+        assert([YTMPCoverURL(@"Next",@"Artist",nil) isEqual:@"https://i.ytimg.com/next.jpg"]);
+        assert(!YTMPCoverURL(@"Next",@"Other Artist",nil));
+        assert(!YTMPCoverURL(@"Unknown",@"Artist",nil));
+        YTMPFlushLogs();
+        [NSFileManager.defaultManager removeItemAtURL:logDir error:NULL];
         puts("Artwork tests passed: URL validation, native thumbnail selection, track mismatch, ID fallback, Unicode.");
     } return 0;
 }
