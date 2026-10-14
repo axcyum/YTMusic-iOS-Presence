@@ -11,6 +11,9 @@
   iOS版YouTube Musicの再生情報をDiscord Social SDK経由でRich Presenceへ送信するObjective-C++ dylib。
 </p>
 
+## pictures
+<img width="1035" height="898" alt="{B85044D0-B601-4DA2-A879-D8CA8B5FAEE1}" src="https://github.com/user-attachments/assets/9766ae2a-b2f1-4df2-be4c-700fc678ac1f" />
+
 ## Features
 
 - `MPNowPlayingInfoCenter`から曲名・アーティスト・アルバム・再生時刻を取得。送信間隔は最低15秒で、一時停止・停止時にPresenceを消去。
