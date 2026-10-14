@@ -387,6 +387,7 @@ static void PresentSettings(void) {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Discord Rich Presence"
         message:[NSString stringWithFormat:@"状態：%@\nログ：Documents/YTMusicPresence/presence.jsonl",m.status]
         preferredStyle:UIAlertControllerStyleAlert];
+    __weak UIAlertController *weakSheet = sheet;
     [sheet addAction:[UIAlertAction actionWithTitle:@"Discordと連携 / 再連携" style:UIAlertActionStyleDefault
         handler:^(UIAlertAction *a){ [m login]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"共有を再開" style:UIAlertActionStyleDefault
@@ -398,10 +399,13 @@ static void PresentSettings(void) {
             NSURL *previous = [[YTMPLogFileURL() URLByDeletingLastPathComponent] URLByAppendingPathComponent:@"presence.previous.jsonl"];
             if ([NSFileManager.defaultManager fileExistsAtPath:previous.path]) [files addObject:previous];
             UIActivityViewController *share = [[UIActivityViewController alloc] initWithActivityItems:files applicationActivities:nil];
-            UIViewController *vc = TopController();
+            UIViewController *vc = weakSheet.presentingViewController;
+            if (!vc) return;
             share.popoverPresentationController.sourceView = vc.view;
             share.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(vc.view.bounds),CGRectGetMidY(vc.view.bounds),1,1);
-            dispatch_async(dispatch_get_main_queue(), ^{ [vc presentViewController:share animated:YES completion:nil]; });
+            [vc dismissViewControllerAnimated:YES completion:^{
+                [vc presentViewController:share animated:YES completion:nil];
+            }];
         }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"共有を停止" style:UIAlertActionStyleDefault
         handler:^(UIAlertAction *a){ [m disable]; }]];

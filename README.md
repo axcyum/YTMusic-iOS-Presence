@@ -16,7 +16,24 @@ iPhone内のYouTube MusicからDiscord Social SDKへ直接Rich Presenceを送る
 - SDKのOAuth + PKCEを利用。Presence用の標準スコープを要求。
 - OAuthのaccess/refresh tokenはKeychainに保存。Client Secretは不要。
 - YTMusicUltimateは同梱されたものを保持し、追加のdylibをロードする。既存フックのIMPを連鎖させる。
-- ジャケットのアップロードは実装せず、Developer Portalの静的アセット`ytmusic`を使用。
+- 画像アセットは標準では送信しません。`config.json`の`use_assets`をtrueにした場合のみ、登録済みの静的アセット`ytmusic`を使用。
+
+## 診断ログと送信失敗への対応
+
+アプリ内の `Documents/YTMusicPresence/presence.jsonl` に、起動、認証・トークン更新の成否、SDK接続状態、Presence送信内容・結果をJSON Lines形式で保存します。失敗時はSDKのerror type、HTTP status、Discord error code、HTTP response bodyを記録します。OAuthトークン、認証コード、PKCE verifierは伏せ字にします。
+
+設定メニューの **診断ログを共有** からログファイルを書き出せます。Filesアプリや対応するファイル共有ツールからDocumentsへアクセスするためのInfo.plist設定も追加しています。ファイルサイズが1 MiBを超える前に `presence.previous.jsonl` へローテーションし、直近2ファイルを保持します。曲名・アーティストは診断のためログに含まれます。
+
+更新失敗の原因は、以前の版が詳細を記録していなかったためまだ確定できていません。今回の変更では次を実施します。
+
+- 未登録の画像キーに依存しない送信内容へ変更。
+- Unicodeの文字を途中で切らず、文字列をUTF-8で128 bytes以内に調整。
+- 再生時刻をメタデータ取得時点に固定し、再試行待機時間による時刻のずれを抑制。
+- HTTP 400やDiscord code 50035で送信内容が拒否された場合、まず画像・時刻情報を外して再試行。それでも拒否された場合はPlayingの互換表示で再試行し、再度HTTP 400なら自動再試行を停止。
+- HTTP 401/403は送信形式を変更せず停止し、状態表示とログに詳細を残す。HTTP 429はRetryAfter以上の待機時間を取る。
+- 成功時は「共有中」へ表示を更新。「共有を再開」で停止した再試行を再開できる。
+
+ログは今後の起動から記録されます。以前のIPAで発生した失敗のログを遡って取得することはできません。実機で同じ失敗が続く場合は、メニューの「診断ログを共有」で取得したファイルが原因特定に必要です。
 
 Application ID：`1559887091171852310`。`config.json`を変更して別のアプリIDでビルドできます。
 

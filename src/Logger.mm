@@ -33,7 +33,7 @@ static id Redact(id value) {
             @"(?i)(Bearer\\s+)[A-Za-z0-9._~+/=-]+",
             @"(?i)((?:access_token|refresh_token|client_secret|code_verifier|authorization|token)[\\\"'\\s]*[:=][\\\"'\\s]*)[^\\\"'\\s&,}]+",
             @"(?i)([?&](?:code|state)=)[^&\\s]+",
-            @"[A-Za-z0-9_-]{15,}\\.[A-Za-z0-9_-]{6,}\\.[A-Za-z0-9_-]{15,}"
+            @"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{15,}+\\.[A-Za-z0-9_-]{6,}+\\.[A-Za-z0-9_-]{15,}+(?![A-Za-z0-9_-])"
         ];
         for (NSString *pattern in patterns) {
             NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:NULL];
