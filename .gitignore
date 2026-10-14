@@ -1,0 +1,7 @@
+build/
+vendor/
+*.ipa
+*.dylib
+*.xcframework/
+__pycache__/
+.DS_Store
