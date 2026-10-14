@@ -10,11 +10,13 @@
 #include <discord_partner_sdk/discordpp.h>
 #include "Config.h"
 #import "Logger.h"
+#import "Artwork.h"
 static const char BuildConfiguration[] __attribute__((used)) =
     "YTMP_APPLICATION_ID=" YTMP_APPLICATION_ID_STRING;
 
 // All SDK calls, callbacks, and state changes run on the main thread.
 static NSString *const EnabledKey = @"YTMusicPresence.enabled";
+static NSString *const CoverKey = @"YTMusicPresence.cover";
 static NSString *const TokenService = @"YTMusicPresence.oauth";
 static NSString *const Account = @YTMP_APPLICATION_ID_STRING;
 static std::string UTF8(NSString *s) { return s ? std::string(s.UTF8String ?: "") : ""; }
@@ -82,12 +84,15 @@ static void TokenDelete(void) {
     NSUInteger metadataRevision;
     int payloadMode;
     BOOL blockedPayload, ticking;
+    BOOL omitArtwork;
     NSTimeInterval nextAttempt, nextAuthAttempt, lastSend;
     NSDictionary *tokens;
     NSString *lastFingerprint;
     double lastStart;
     double sampleStart;
     NSString *sampleFingerprint;
+    NSString *cachedCover, *coverTitle;
+    NSTimeInterval lastCoverCheck;
     NSTimer *timer;
 }
 @property(nonatomic,copy) NSString *status;
@@ -98,6 +103,8 @@ static void TokenDelete(void) {
 - (void)disable;
 - (void)forget;
 - (void)retryPresence;
+- (BOOL)coverEnabled;
+- (void)toggleCover;
 - (void)refresh;
 - (void)connectToken;
 - (BOOL)enabled;
@@ -117,7 +124,7 @@ static void TokenDelete(void) {
     if ((self = [super init])) {
         self.status = @"未連携"; tokens = TokenRead();
         YTMPRememberSecret(Text(tokens[@"access"])); YTMPRememberSecret(Text(tokens[@"refresh"]));
-        YTMPLog(@"startup",@{@"build":@"diagnostics-v2",@"app_id":Account,
+        YTMPLog(@"startup",@{@"build":@"cover-v3",@"app_id":Account,
             @"bundle_id":NSBundle.mainBundle.bundleIdentifier ?: @"",@"saved_token":@(tokens != nil)});
         client = std::make_shared<discordpp::Client>();
         client->SetApplicationId(YTMP_APPLICATION_ID);
@@ -195,7 +202,7 @@ static void TokenDelete(void) {
     // Explicit user action only; never trigger OAuth when the app launches.
     [NSUserDefaults.standardUserDefaults setBool:YES forKey:EnabledKey];
     busy = YES; self.status = @"Discordの認証を待っています";
-    blockedPayload = NO; payloadMode = 0; nextAttempt = 0;
+    blockedPayload = NO; payloadMode = 0; omitArtwork = NO; nextAttempt = 0;
     auto epoch = ++generation;
     inFlight = NO;
     auto verifier = client->CreateAuthorizationCodeVerifier();
@@ -252,9 +259,19 @@ static void TokenDelete(void) {
 }
 - (void)retryPresence {
     [NSUserDefaults.standardUserDefaults setBool:YES forKey:EnabledKey];
-    blockedPayload = NO; payloadMode = 0; nextAttempt = 0; nextAuthAttempt = 0;
+    blockedPayload = NO; payloadMode = 0; omitArtwork = NO; nextAttempt = 0; nextAuthAttempt = 0;
     lastFingerprint = nil; self.status = @"再試行中";
     YTMPLog(@"manual_retry",@{}); [self resume]; [self tick];
+}
+- (BOOL)coverEnabled {
+    id value = [NSUserDefaults.standardUserDefaults objectForKey:CoverKey];
+    return value ? [value boolValue] : YTMP_USE_COVER;
+}
+- (void)toggleCover {
+    [NSUserDefaults.standardUserDefaults setBool:![self coverEnabled] forKey:CoverKey];
+    omitArtwork = NO; cachedCover = nil; coverTitle = nil; lastCoverCheck = 0;
+    lastFingerprint = nil;
+    YTMPLog(@"cover_setting",@{@"enabled":@([self coverEnabled])}); [self tick];
 }
 - (void)tick {
     if (ticking) return;
@@ -283,14 +300,24 @@ static void TokenDelete(void) {
     }
     double start = sampleStart;
     if (inFlight || blockedPayload || now < nextAttempt || now - lastSend < 15) return;
+    if ([self coverEnabled] && !omitArtwork && (now-lastCoverCheck >= 1 || ![title isEqual:coverTitle])) {
+        NSString *url = YTMPCoverURL(title);
+        if (![url ?: @"" isEqual:cachedCover ?: @""] || ![title isEqual:coverTitle]) {
+            YTMPLog(@"artwork_lookup",@{@"title":title,@"url":url ?: @"",@"found":@(url.length>0)});
+        }
+        cachedCover = url; coverTitle = title; lastCoverCheck = now;
+    }
+    NSString *image = ([self coverEnabled] && !omitArtwork) ? cachedCover : nil;
+    if (!image.length && !omitArtwork && YTMP_USE_ASSETS) image = @YTMP_ASSET_KEY;
+    // Keep the timeline identity independent from image changes.
+    fingerprint = [fingerprint stringByAppendingFormat:@"\n%@",image ?: @""];
     if (published && [fingerprint isEqual:lastFingerprint]) return;
     discordpp::Activity activity{};
     activity.SetType(payloadMode < 2 ? discordpp::ActivityTypes::Listening : discordpp::ActivityTypes::Playing);
     activity.SetDetails(UTF8(PresenceText(title)));
     if (PresenceText(artist).length) activity.SetState(UTF8(PresenceText(artist)));
-    // Do not send an unverified asset key. Asset registration is optional.
-    if (payloadMode == 0 && YTMP_USE_ASSETS) {
-        discordpp::ActivityAssets assets{}; assets.SetLargeImage(YTMP_ASSET_KEY);
+    if (image.length) {
+        discordpp::ActivityAssets assets{}; assets.SetLargeImage(UTF8(image));
         assets.SetLargeText(UTF8(PresenceText(album.length ? album : @"YouTube Music"))); activity.SetAssets(assets);
     }
     BOOL withTimes = payloadMode == 0 && duration > 0 && elapsed <= duration && fabs(rate-1)<0.001;
@@ -303,9 +330,9 @@ static void TokenDelete(void) {
     auto revision = metadataRevision;
     YTMPLog(@"presence_send",@{@"mode":@(payloadMode),@"details":PresenceText(title),
         @"state":PresenceText(artist),@"duration":@(duration),@"elapsed":@(elapsed),
-        @"rate":@(rate),@"timestamps":@(withTimes),@"assets":@(payloadMode == 0 && YTMP_USE_ASSETS)});
+        @"rate":@(rate),@"timestamps":@(withTimes),@"assets":@(image.length>0),@"image":image ?: @""});
     inFlight = YES; lastSend = now;
-    client->UpdateRichPresence(activity, [self, epoch, revision, fingerprint, start](auto result) {
+    client->UpdateRichPresence(activity, [self, epoch, revision, fingerprint, start, image](auto result) {
         LogResult(@"presence_result",result);
         if (epoch != generation) return;
         inFlight = NO;
@@ -319,7 +346,15 @@ static void TokenDelete(void) {
         } else {
             int http = (int)result.Status();
             // Only degrade payload on validation errors, never on auth/network failures.
-            if ((http == 400 || result.ErrorCode() == 50035) && payloadMode < 2) {
+            NSString *body = @(result.ResponseBody().c_str());
+            BOOL invalidPayload = http == 400 || result.ErrorCode() == 50035;
+            BOOL mentionsTime = [body.lowercaseString containsString:@"timestamps"];
+            if (invalidPayload && image.length && !mentionsTime && !omitArtwork) {
+                omitArtwork = YES; lastFingerprint = nil;
+                nextAttempt = NSDate.date.timeIntervalSince1970 + 15;
+                self.status = @"画像なしで再試行";
+                YTMPLog(@"artwork_fallback",@{@"image":image,@"reason":@"payload_validation"});
+            } else if (invalidPayload && payloadMode < 2) {
                 ++payloadMode; nextAttempt = NSDate.date.timeIntervalSince1970 + 15;
                 self.status = @"送信内容を簡略化して再試行";
                 YTMPLog(@"payload_fallback",@{@"mode":@(payloadMode)});
@@ -392,6 +427,8 @@ static void PresentSettings(void) {
         handler:^(UIAlertAction *a){ [m login]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"共有を再開" style:UIAlertActionStyleDefault
         handler:^(UIAlertAction *a){ [m retryPresence]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:[m coverEnabled] ? @"サムネイルを非表示" : @"サムネイルを表示"
+        style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){ [m toggleCover]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"診断ログを共有" style:UIAlertActionStyleDefault
         handler:^(UIAlertAction *a){
             YTMPLog(@"log_export",@{}); YTMPFlushLogs();
@@ -426,10 +463,28 @@ static void MenuHook(id self,SEL sel,id upper,id lower) {
     NSMutableArray *buttons = lower ? [lower mutableCopy] : [NSMutableArray new];
     if (button) [buttons addObject:button]; OriginalMenu(self,sel,upper,buttons);
 }
+static void (*OriginalPlayerLoad)(id,SEL);
+static void PlayerLoadHook(id self,SEL sel) {
+    OriginalPlayerLoad(self,sel); YTMPObservePlayer(self);
+}
+static void (*OriginalPlayerTime)(id,SEL,id,id);
+static void PlayerTimeHook(id self,SEL sel,id video,id time) {
+    OriginalPlayerTime(self,sel,video,time); YTMPObservePlayer(self);
+}
+static void (*OriginalMutatedTime)(id,SEL,id,id);
+static void MutatedTimeHook(id self,SEL sel,id video,id time) {
+    OriginalMutatedTime(self,sel,video,time); YTMPObservePlayer(self);
+}
 __attribute__((constructor)) static void Start(void) {
     @autoreleasepool {
         if (![NSBundle.mainBundle.infoDictionary[@"CFBundleExecutable"] isEqual:@"YouTubeMusic"]) return;
         dispatch_async(dispatch_get_main_queue(), ^{
+            Class playerClass = NSClassFromString(@"YTPlayerViewController");
+            OriginalPlayerLoad = (decltype(OriginalPlayerLoad))Replace(playerClass,@selector(viewDidLoad),(IMP)PlayerLoadHook);
+            OriginalPlayerTime = (decltype(OriginalPlayerTime))Replace(playerClass,NSSelectorFromString(@"singleVideo:currentVideoTimeDidChange:"),(IMP)PlayerTimeHook);
+            OriginalMutatedTime = (decltype(OriginalMutatedTime))Replace(playerClass,NSSelectorFromString(@"potentiallyMutatedSingleVideo:currentVideoTimeDidChange:"),(IMP)MutatedTimeHook);
+            YTMPLog(@"artwork_hooks",@{@"viewDidLoad":@(OriginalPlayerLoad != NULL),
+                @"timeChanged":@(OriginalPlayerTime != NULL),@"mutatedTimeChanged":@(OriginalMutatedTime != NULL)});
             OriginalInfo = (decltype(OriginalInfo))Replace(MPNowPlayingInfoCenter.class,
                 @selector(setNowPlayingInfo:),(IMP)InfoHook);
             OriginalState = (decltype(OriginalState))Replace(MPNowPlayingInfoCenter.class,

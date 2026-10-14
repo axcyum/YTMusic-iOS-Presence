@@ -16,7 +16,19 @@ iPhone内のYouTube MusicからDiscord Social SDKへ直接Rich Presenceを送る
 - SDKのOAuth + PKCEを利用。Presence用の標準スコープを要求。
 - OAuthのaccess/refresh tokenはKeychainに保存。Client Secretは不要。
 - YTMusicUltimateは同梱されたものを保持し、追加のdylibをロードする。既存フックのIMPを連鎖させる。
-- 画像アセットは標準では送信しません。`config.json`の`use_assets`をtrueにした場合のみ、登録済みの静的アセット`ytmusic`を使用。
+- 曲のサムネイルURLを取得できた場合、外部画像URLとして送信します。静的アセットの送信は標準では無効です。
+
+## 曲ごとのサムネイル
+
+公式Social SDKは外部画像URLを `ActivityAssets::SetLargeImage` に指定できます。Developer Portalへ曲ごとに画像を登録する必要はなく、この機能のための追加OAuthスコープは要求しません。
+
+YouTube Musicの `YTPlayerViewController → playerResponse → playerData → videoDetails → thumbnail → thumbnailsArray` からサムネイルURLを取得します。Now Playingの曲名とモデルの曲名が一致した時だけ使用し、曲変更時に前の画像を誤って送ることを避けます。画像一覧が空なら、確認した動画IDから標準YouTubeサムネイルの公開URLを作ります。既知のYouTube/Google画像ホストのHTTPS URLのみを使用します。ローカル画像のアップロードは行いません。
+
+設定メニューの「サムネイルを非表示 / 表示」で切り替えられます。画像が原因で送信内容を拒否された場合は画像なしで再試行し、曲情報の共有を維持します。「共有を再開」で画像送信も再試行します。画像URLの取得結果・送信・画像なしへのフォールバックはDocumentsの診断ログへ記録します。
+
+`config.json`の`use_cover`は初期表示設定です。`use_assets`は別設定で、trueにすると動的サムネイルが取得できない場合に登録済みの静的キー`ytmusic`を使用します。初期値はfalseのため静的画像の登録は任意です。
+
+今回のURL取得処理はアプリのprivate再生モデルに依存します。取得処理のネイティブテストとiOSコンパイルはActionsで検証し、実機での画像表示は更新後に確認が必要です。
 
 ## 診断ログと送信失敗への対応
 
@@ -29,7 +41,7 @@ iPhone内のYouTube MusicからDiscord Social SDKへ直接Rich Presenceを送る
 - 未登録の画像キーに依存しない送信内容へ変更。
 - Unicodeの文字を途中で切らず、文字列をUTF-8で128 bytes以内に調整。
 - 再生時刻をメタデータ取得時点に固定し、再試行待機時間による時刻のずれを抑制。
-- HTTP 400やDiscord code 50035で送信内容が拒否された場合、まず画像・時刻情報を外して再試行。それでも拒否された場合はPlayingの互換表示で再試行し、再度HTTP 400なら自動再試行を停止。
+- HTTP 400やDiscord code 50035で画像を含む送信内容が拒否され、時刻情報のエラーと判断できない場合は画像を外して再試行。時刻情報が原因の場合は画像を維持して時刻情報を外す。それでも拒否された場合はPlayingの互換表示で再試行し、再度HTTP 400なら自動再試行を停止。
 - HTTP 401/403は送信形式を変更せず停止し、状態表示とログに詳細を残す。HTTP 429はRetryAfter以上の待機時間を取る。
 - 成功時は「共有中」へ表示を更新。「共有を再開」で停止した再試行を再開できる。
 
