@@ -1,13 +1,19 @@
-# YTMusic iOS DiscordRPC
+<p align="center">
+  <img src="https://cdn.simpleicons.org/youtubemusic/FF0033" alt="YouTube Music" width="128" height="128">
+</p>
 
-iOS版YouTube Musicの再生情報を、注入したObjective-C++ dylibからDiscord Social SDK経由でRich Presenceへ送信します。
+<h1 align="center">YTMusic iOS DiscordRPC</h1>
+
+<p align="center">
+  iOS版YouTube Musicの再生情報をDiscord Social SDK経由でRich Presenceへ送信するObjective-C++ dylib。
+</p>
 
 ## Features
 
 - `MPNowPlayingInfoCenter`から曲名・アーティスト・アルバム・再生時刻を取得。送信間隔は最低15秒で、一時停止・停止時にPresenceを消去。
 - OAuth + PKCEで認証し、アクセストークンとリフレッシュトークンをKeychainに保存。
-- 再生モデルから曲のサムネイルURLを取得。画像を含む送信が拒否された場合は画像なしで再試行。
-- 認証・接続・送信結果をJSON Lines形式で記録し、認証情報の伏せ字とログローテーションに対応。
+- 再生モデルからサムネイルURLを取得。画像を含む送信が拒否された場合は画像なしで再試行。
+- 認証・接続・送信結果をJSON Lines形式で記録。認証情報の伏せ字とログローテーションに対応。
 - PythonでMach-Oのロード命令を追加し、既存dylibのSHA-256とZIPのCRCを検証して未署名IPAを生成。
 
 ## Requirements
@@ -18,7 +24,8 @@ iOS版YouTube Musicの再生情報を、注入したObjective-C++ dylibからDis
 | 言語 | Objective-C / Objective-C++、C++20、Python 3.10以上 |
 | Discord SDK | 公式`discord_partner_sdk.xcframework`のiOS実機arm64スライス |
 | 入力IPA | Bundle IDが`com.google.ios.youtubemusic`、実行ファイルが非暗号化のthin arm64 |
-| 実行環境 | iOS 16.0以上、全ネストコードを再署名できる署名・インストール環境 |
+| 実行環境 | iOS 16.0以上 |
+| 署名環境 | アプリと全ネストコードの再署名・インストールに対応するツール |
 | Discord認証 | Social SDKを利用できるApplication ID、Public Client設定、OAuthリダイレクトURI |
 
 - 既存の検証記録ではYouTube Music **9.26.2**とDiscord Social SDK **1.10.19337**を使用。
@@ -28,14 +35,44 @@ iOS版YouTube Musicの再生情報を、注入したObjective-C++ dylibからDis
 
 ## Installation
 
-以下はリポジトリのルートで実行します。
+以下のコマンドはリポジトリのルートで実行します。
 
-1. 公式SDKを`work/input/discord_partner_sdk.xcframework`へ配置。
-2. 入力IPAを`work/input/YouTubeMusic_9.26.2.ipa`へ配置。
-3. `config.json`の`application_id`を使用するDiscordアプリに合わせて変更。
-4. DiscordアプリでPublic Clientを有効にし、`discord-<application_id>:/authorize/callback`をリダイレクトURIとして登録。
+### 1. ビルド入力を配置
 
-初期設定：
+```sh
+mkdir -p work/input
+
+python3 --version
+xcrun --sdk iphoneos --show-sdk-path
+xcrun --sdk iphoneos clang++ --version
+```
+
+公式SDKと入力IPAを以下の構成で配置します。
+
+```text
+work/input/
+├── discord_partner_sdk.xcframework/
+└── YouTubeMusic_9.26.2.ipa
+```
+
+### 2. Discord認証を設定
+
+1. 使用するDiscordアプリでSocial SDKを有効にする。
+2. OAuth2設定でPublic Clientを有効にする。
+3. `config.json`の`application_id`をそのアプリのIDに変更する。
+4. リダイレクトURIに`discord-<application_id>:/authorize/callback`を登録する。
+
+初期設定のApplication IDを使用する場合のリダイレクトURI：
+
+```text
+discord-1559887091171852310:/authorize/callback
+```
+
+Client Secretは使用しません。認証スコープはSDKの`GetDefaultPresenceScopes()`で指定します。
+
+### 3. ビルド設定を確認
+
+`config.json`：
 
 ```json
 {
@@ -47,20 +84,17 @@ iOS版YouTube Musicの再生情報を、注入したObjective-C++ dylibからDis
 }
 ```
 
-- `use_cover`：曲のサムネイル表示の初期値。アプリ内で変更可能。
-- `use_assets`：動的サムネイルを取得できない場合に静的アセットを使用。
-- `asset_key`：`use_assets: true`の場合に使用する登録済みアセットのキー。
-- 設定ファイルの変更後は再ビルドが必要。
+| 設定 | 用途 |
+| --- | --- |
+| `application_id` | 認証・Presence送信に使用するDiscord Application ID |
+| `minimum_ios` | dylibのiOS Deployment Target |
+| `asset_key` | 静的アセットとして使用する登録済み画像のキー |
+| `use_assets` | 動的サムネイルを取得できない場合に静的アセットを使用 |
+| `use_cover` | サムネイル表示の初期値。アプリ内で変更可能 |
 
-ビルド環境の確認：
+設定ファイルの変更後は再ビルドが必要です。静的アセットの登録は`use_assets: true`の場合に必要です。
 
-```sh
-python3 --version
-xcrun --sdk iphoneos --show-sdk-path
-xcrun --sdk iphoneos clang++ --version
-```
-
-dylibのビルドとIPAへの組み込み：
+### 4. ビルドとIPA生成
 
 ```sh
 python3 tools/build.py \
@@ -79,7 +113,7 @@ build/
 └── YouTubeMusic_9.26.2_Presence_unsigned.report.json
 ```
 
-- 出力IPAが存在する場合は上書きせず終了します。
+- 入力IPAは上書きしません。出力IPAが存在する場合もエラーで終了します。
 - 暗号化された実行ファイル、未対応のMach-O形式、ロード命令用のヘッダ余白不足はエラーになります。
 - 生成IPAは未署名です。メインアプリ、追加dylib、SDKフレームワークを含む全ネストコードを再署名してからインストールしてください。
 - 署名・インストール処理は本リポジトリに含まれません。
@@ -98,20 +132,16 @@ build/
 | 診断ログを共有 | ログファイルを書き出し |
 | 連携を解除 | ローカル認証情報を削除し、トークン失効を要求 |
 
-dylibのみをビルド：
+dylibのみをビルドする場合：
 
 ```sh
 python3 tools/build.py \
   --sdk ./work/input/discord_partner_sdk.xcframework
 ```
 
-パッケージングツールのテスト：
+### Diagnostics
 
-```sh
-python3 -m unittest discover -s tests -v
-```
-
-診断ログはアプリ内の以下のパスに保存されます。曲名・アーティストを含み、約1 MiBでローテーションします。
+ログはアプリ内の以下のパスに保存します。
 
 ```text
 Documents/YTMusicPresence/
@@ -119,40 +149,43 @@ Documents/YTMusicPresence/
 └── presence.previous.jsonl
 ```
 
+- 起動、認証、トークン更新、SDK接続状態、Presence送信結果を記録。
+- 送信失敗時はSDKエラー、HTTPステータス、Discordエラーコード、レスポンスを記録。
+- OAuthトークン、認証コード、PKCE verifierを伏せ字化。
+- 曲名・アーティスト・画像URLを含む。
+- 約1 MiBでローテーションし、直近2ファイルを保持。
+
 ## Architecture
 
+再生情報の送信経路：
+`YouTube Music → MPNowPlayingInfoCenter → YTMusicPresence.dylib → Discord Social SDK → Discord`
+
 ```mermaid
-flowchart TD
-    subgraph App["YouTube Music / iOS"]
-        NP["MPNowPlayingInfoCenter"]
-        Model["非公開の再生モデル"]
-        UI["アカウントメニュー"]
-        Artwork["Artwork.mm<br/>サムネイルURL解決"]
-        Presence["Presence.mm<br/>再生状態・認証・送信制御"]
-        Keychain[("Keychain")]
-        SDK["Discord Social SDK"]
-        Logger["Logger.mm"]
-        Log[("Documents / JSONL")]
-
-        NP -->|"曲情報・再生状態"| Presence
-        Model --> Artwork
-        Artwork -->|"HTTPS画像URL"| Presence
-        UI -->|"認証・共有設定"| Presence
-        Presence <-->|"トークン保存・復元"| Keychain
-        Presence -->|"認証・Presence更新・消去"| SDK
-        SDK -->|"接続状態・処理結果"| Presence
-        Presence --> Logger
-        Artwork --> Logger
-        Logger --> Log
-    end
-
-    SDK <-->|"OAuth + PKCE / Rich Presence"| Discord["Discord"]
+graph TD
+    A["MPNowPlayingInfoCenter"] -->|再生情報| B["YTMusicPresence.dylib"]
+    C["YouTube Music 再生モデル"] -->|画像URL| B
+    B <-->|認証情報| D["Keychain"]
+    B -->|Presence更新| E["Discord Social SDK"]
+    E --> F["Discord"]
+    B --> G["JSONL診断ログ"]
 ```
 
-- 実行時はiPhone内からDiscordへ直接接続します。PC常駐プロセスや中継サーバーは使用しません。
-- SDK呼び出し、コールバック、状態変更はメインスレッドで処理します。
-- PythonはビルドとIPA加工に使用し、iOS上では実行しません。
-- パッケージング時に`@rpath/YTMusicPresence.dylib`のロード命令、必要なRPATH、OAuth用URLスキームを追加します。
+- Objective-C++：再生情報の取得、設定UI、OAuth認証、Presence送信。
+- Python：dylibのビルドとIPAへの組み込み。iOS上では実行しません。
+- 実行時はiPhoneからDiscordへ直接接続。
+- SDK呼び出し、コールバック、状態変更はメインスレッドで処理。
+- 設定UIと画像取得はYouTube Musicの非公開クラスに依存。
+
+IPAへの組み込み時は以下を実行します。
+
+- `@rpath/YTMusicPresence.dylib`のロード命令を追加。
+- 必要に応じて`@executable_path/Frameworks`のRPATHを追加。
+- dylibとDiscord SDKフレームワークを`Frameworks`へ配置。
+- OAuth用URLスキーム、Discord照会スキーム、ファイル共有設定を`Info.plist`へ追加。
+- 古い署名リソースとメインアプリのprovisioning profileを除去。
+- 既存dylibの保持とZIPの整合性を検証し、レポートを出力。
+
+### Project Structure
 
 ```text
 .
@@ -176,13 +209,44 @@ flowchart TD
 └── LICENSE
 ```
 
-### Constraints
+## Tests
 
-- 設定メニューと画像取得はYouTube Musicの非公開クラスに依存し、アプリ更新で修正が必要になる場合があります。
+Mach-O加工とIPA生成のテスト：
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+ログ保存と画像URL解決のネイティブテストはmacOSで実行します。
+
+```sh
+mkdir -p build
+
+clang++ -std=c++20 -fobjc-arc -DYTMP_LOG_TESTING \
+  -framework Foundation \
+  src/Logger.mm tests/logger_test.mm \
+  -o build/logger-test
+
+./build/logger-test
+
+clang++ -std=c++20 -fobjc-arc -DYTMP_LOG_TESTING \
+  -framework Foundation \
+  src/Artwork.mm src/Logger.mm tests/artwork_test.mm \
+  -o build/artwork-test
+
+./build/artwork-test
+```
+
+iOS実機とDiscord間の認証・表示・バックグラウンド動作は、これらのテストの対象外です。
+
+## Limitations
+
+- 設定メニューと画像取得は非公開クラスに依存するため、YouTube Musicの更新で修正が必要になる場合があります。
 - 再生状態を判定できない場合は共有しません。
-- iOSによるサスペンド・強制終了中は更新・消去処理を実行できません。
-- ビルドとIPA生成の成功は、実機でのOAuth復帰・画像表示・バックグラウンド動作を保証しません。
-- PythonテストはMach-O加工とIPA生成を検証します。iOS・Discord間の結合テストは含みません。
+- iOSによるサスペンド・強制終了中は、更新・消去処理を実行できません。
+- Casting、広告、ライブ配信など、Now Playing情報が通常の曲再生と異なるケースは実機確認が必要です。
+- ビルドとIPA生成の成功は、OAuth復帰・サムネイル表示・バックグラウンド動作を保証しません。
+- オフラインなどでトークン失効に失敗した場合は、Discord側の設定から連携を解除してください。
 
 ## License
 
