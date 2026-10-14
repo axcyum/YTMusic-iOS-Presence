@@ -9,6 +9,7 @@
 #define DISCORDPP_IMPLEMENTATION
 #include <discord_partner_sdk/discordpp.h>
 #include "Config.h"
+#import "Logger.h"
 static const char BuildConfiguration[] __attribute__((used)) =
     "YTMP_APPLICATION_ID=" YTMP_APPLICATION_ID_STRING;
 
@@ -21,6 +22,28 @@ static NSString *Text(id v) { return [v isKindOfClass:NSString.class] ? v : @"";
 static double Number(id v, double fallback) {
     if (![v isKindOfClass:NSNumber.class]) return fallback;
     double n = [v doubleValue]; return std::isfinite(n) ? n : fallback;
+}
+static NSString *PresenceText(NSString *s) {
+    s = [[s componentsSeparatedByCharactersInSet:NSCharacterSet.controlCharacterSet] componentsJoinedByString:@" "];
+    s = [s stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!s.length) return @"";
+    NSMutableString *out = [NSMutableString new];
+    [s enumerateSubstringsInRange:NSMakeRange(0,s.length) options:NSStringEnumerationByComposedCharacterSequences
+        usingBlock:^(NSString *part,NSRange range,NSRange enclosing,BOOL *stop){
+            if ([out lengthOfBytesUsingEncoding:NSUTF8StringEncoding]+[part lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>128) *stop=YES;
+            else [out appendString:part];
+        }];
+    if (out.length == 1) [out appendString:@" "];
+    return out;
+}
+static void LogResult(NSString *event, const discordpp::ClientResult &r) {
+    NSString *body = @(r.ResponseBody().c_str());
+    NSData *data = [body dataUsingEncoding:NSUTF8StringEncoding];
+    id response = data.length ? [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingFragmentsAllowed error:NULL] : @"";
+    YTMPLog(event,@{@"success":@(r.Successful()),@"error_type":@((int)r.Type()),
+        @"http_status":@((int)r.Status()),@"error_code":@(r.ErrorCode()),
+        @"error":@(r.Error().c_str()),@"response":response ?: body,
+        @"retryable":@(r.Retryable()),@"retry_after":@(r.RetryAfter())});
 }
 static NSDictionary *TokenRead(void) {
     NSDictionary *query = @{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
@@ -56,10 +79,15 @@ static void TokenDelete(void) {
     std::shared_ptr<discordpp::Client> client;
     BOOL ready, busy, published, inFlight;
     NSUInteger generation;
+    NSUInteger metadataRevision;
+    int payloadMode;
+    BOOL blockedPayload, ticking;
     NSTimeInterval nextAttempt, nextAuthAttempt, lastSend;
     NSDictionary *tokens;
     NSString *lastFingerprint;
     double lastStart;
+    double sampleStart;
+    NSString *sampleFingerprint;
     NSTimer *timer;
 }
 @property(nonatomic,copy) NSString *status;
@@ -69,6 +97,7 @@ static void TokenDelete(void) {
 - (void)resume;
 - (void)disable;
 - (void)forget;
+- (void)retryPresence;
 - (void)refresh;
 - (void)connectToken;
 - (BOOL)enabled;
@@ -87,10 +116,18 @@ static void TokenDelete(void) {
 - (instancetype)init {
     if ((self = [super init])) {
         self.status = @"未連携"; tokens = TokenRead();
+        YTMPRememberSecret(Text(tokens[@"access"])); YTMPRememberSecret(Text(tokens[@"refresh"]));
+        YTMPLog(@"startup",@{@"build":@"diagnostics-v2",@"app_id":Account,
+            @"bundle_id":NSBundle.mainBundle.bundleIdentifier ?: @"",@"saved_token":@(tokens != nil)});
         client = std::make_shared<discordpp::Client>();
         client->SetApplicationId(YTMP_APPLICATION_ID);
         client->SetEngineManagedAudioSession(true);
+        client->AddLogCallback([](auto message,auto severity){
+            YTMPLog(@"sdk_warning",@{@"severity":@((int)severity),@"message":@(message.c_str())});
+        },discordpp::LoggingSeverity::Warning);
         client->SetStatusChangedCallback([self](auto state, auto error, int32_t detail) {
+            YTMPLog(@"connection",@{@"state":@(discordpp::Client::StatusToString(state).c_str()),
+                @"error":@(discordpp::Client::ErrorToString(error).c_str()),@"detail":@(detail)});
             ready = state == discordpp::Client::Status::Ready;
             self.status = ready ? @"接続済み" : @"接続待ち";
             if (!ready) { published = NO; lastFingerprint = nil; }
@@ -108,6 +145,7 @@ static void TokenDelete(void) {
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(background)
             name:UIApplicationDidEnterBackgroundNotification object:nil];
         [self resume];
+        YTMPLog(@"log_ready",@{@"path":@"Documents/YTMusicPresence/presence.jsonl"});
     } return self;
 }
 - (BOOL)enabled { return [NSUserDefaults.standardUserDefaults boolForKey:EnabledKey]; }
@@ -115,12 +153,14 @@ static void TokenDelete(void) {
     auto epoch = generation;
     client->UpdateToken(discordpp::AuthorizationTokenType::Bearer, UTF8(Text(tokens[@"access"])),
         [self, epoch](auto result) {
+            LogResult(@"update_token",result);
             if (epoch != generation || ![self enabled]) return;
             if (result.Successful()) { self.status = @"接続中"; client->Connect(); }
             else { self.status = @"認証エラー：再連携してください"; }
         });
 }
 - (void)acceptAccess:(NSString *)access refresh:(NSString *)refresh expires:(int32_t)seconds {
+    YTMPRememberSecret(access); YTMPRememberSecret(refresh);
     tokens = @{ @"access":access, @"refresh":refresh,
         @"expiry":@(NSDate.date.timeIntervalSince1970 + MAX(0, seconds)) };
     self.status = TokenWrite(tokens) ? @"認証済み" : @"認証済み（保存失敗、次回は再連携）";
@@ -132,6 +172,8 @@ static void TokenDelete(void) {
     client->RefreshToken(YTMP_APPLICATION_ID, UTF8(Text(tokens[@"refresh"])),
         [self, epoch](auto result, std::string access, std::string refresh,
             auto type, int32_t expires, std::string scope) {
+            YTMPRememberSecret(@(access.c_str())); YTMPRememberSecret(@(refresh.c_str()));
+            LogResult(@"refresh_token",result);
             if (epoch != generation) return;
             busy = NO;
             if (!result.Successful()) {
@@ -153,18 +195,25 @@ static void TokenDelete(void) {
     // Explicit user action only; never trigger OAuth when the app launches.
     [NSUserDefaults.standardUserDefaults setBool:YES forKey:EnabledKey];
     busy = YES; self.status = @"Discordの認証を待っています";
+    blockedPayload = NO; payloadMode = 0; nextAttempt = 0;
     auto epoch = ++generation;
+    inFlight = NO;
     auto verifier = client->CreateAuthorizationCodeVerifier();
+    YTMPRememberSecret(@(verifier.Verifier().c_str()));
+    YTMPLog(@"authorize_start",@{@"scopes":@(discordpp::Client::GetDefaultPresenceScopes().c_str())});
     discordpp::AuthorizationArgs args{};
     args.SetClientId(YTMP_APPLICATION_ID);
     args.SetScopes(discordpp::Client::GetDefaultPresenceScopes());
     args.SetCodeChallenge(verifier.Challenge());
     client->Authorize(args, [self, epoch, verifier](auto result, auto code, auto redirect) {
+        YTMPRememberSecret(@(code.c_str())); LogResult(@"authorize",result);
         if (epoch != generation) return;
         if (!result.Successful()) { busy = NO; self.status = @"認証キャンセルまたは失敗"; return; }
         client->GetToken(YTMP_APPLICATION_ID, code, verifier.Verifier(), redirect,
             [self, epoch](auto result, std::string access, std::string refresh,
                 auto type, int32_t expires, std::string scope) {
+                YTMPRememberSecret(@(access.c_str())); YTMPRememberSecret(@(refresh.c_str()));
+                LogResult(@"get_token",result);
                 if (epoch != generation) return;
                 busy = NO;
                 if (!result.Successful()) { self.status = @"トークン交換失敗：Public Client設定を確認"; return; }
@@ -173,20 +222,22 @@ static void TokenDelete(void) {
     });
 }
 - (void)clear {
-    if (ready && published) client->ClearRichPresence();
+    if (ready && published) { client->ClearRichPresence(); YTMPLog(@"presence_clear",@{}); }
     published = NO; lastFingerprint = nil;
 }
 - (void)disable {
+    YTMPLog(@"sharing_disabled",@{});
     [NSUserDefaults.standardUserDefaults setBool:NO forKey:EnabledKey];
     ++generation; busy = NO; client->AbortAuthorize();
     if (ready && inFlight && !published) client->ClearRichPresence();
     [self clear]; client->Disconnect(); ready = NO;
+    inFlight = NO;
     self.status = @"共有停止";
 }
 - (void)forget {
     NSString *refresh = Text(tokens[@"refresh"]);
     [self disable];
-    if (refresh.length) client->RevokeToken(YTMP_APPLICATION_ID, UTF8(refresh), [](auto result) {});
+    if (refresh.length) client->RevokeToken(YTMP_APPLICATION_ID, UTF8(refresh), [](auto result) { LogResult(@"revoke_token",result); });
     TokenDelete(); tokens = nil; self.status = @"連携解除（保存情報を削除）";
 }
 - (BOOL)isPlaying:(NSDictionary *)info {
@@ -199,8 +250,17 @@ static void TokenDelete(void) {
 - (void)background {
     if (![self isPlaying:MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo]) [self clear];
 }
+- (void)retryPresence {
+    [NSUserDefaults.standardUserDefaults setBool:YES forKey:EnabledKey];
+    blockedPayload = NO; payloadMode = 0; nextAttempt = 0; nextAuthAttempt = 0;
+    lastFingerprint = nil; self.status = @"再試行中";
+    YTMPLog(@"manual_retry",@{}); [self resume]; [self tick];
+}
 - (void)tick {
+    if (ticking) return;
+    ticking = YES;
     discordpp::RunCallbacks();
+    ticking = NO;
     if (![self enabled]) return;
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     if (!busy && Text(tokens[@"access"]).length && Number(tokens[@"expiry"], 0) < now + 120 && now >= nextAuthAttempt) {
@@ -218,41 +278,74 @@ static void TokenDelete(void) {
     NSString *fingerprint = [NSString stringWithFormat:@"%@\n%@\n%@\n%.1f\n%.2f",title,artist,album,duration,rate];
     // elapsed returned by MPNowPlayingInfoCenter may be a fixed snapshot. Correct
     // seek timing in noteMetadata below rather than recomputing every timer tick.
-    double start = lastStart;
-    if (![fingerprint isEqual:lastFingerprint]) start = now - elapsed / MAX(0.01,rate);
-    if (inFlight || now < nextAttempt || now - lastSend < 15) return;
+    if (![fingerprint isEqual:sampleFingerprint]) {
+        sampleStart = now-elapsed/MAX(0.01,rate); sampleFingerprint = fingerprint;
+    }
+    double start = sampleStart;
+    if (inFlight || blockedPayload || now < nextAttempt || now - lastSend < 15) return;
     if (published && [fingerprint isEqual:lastFingerprint]) return;
     discordpp::Activity activity{};
-    activity.SetType(discordpp::ActivityTypes::Listening);
-    activity.SetDetails(UTF8([title substringToIndex:MIN(title.length,128)]));
-    if (artist.length) activity.SetState(UTF8([artist substringToIndex:MIN(artist.length,128)]));
-    discordpp::ActivityAssets assets{}; assets.SetLargeImage(YTMP_ASSET_KEY);
-    assets.SetLargeText(UTF8(album.length ? [album substringToIndex:MIN(album.length,128)] : @"YouTube Music"));
-    activity.SetAssets(assets);
-    if (duration > 0 && elapsed <= duration && fabs(rate - 1) < 0.001) {
+    activity.SetType(payloadMode < 2 ? discordpp::ActivityTypes::Listening : discordpp::ActivityTypes::Playing);
+    activity.SetDetails(UTF8(PresenceText(title)));
+    if (PresenceText(artist).length) activity.SetState(UTF8(PresenceText(artist)));
+    // Do not send an unverified asset key. Asset registration is optional.
+    if (payloadMode == 0 && YTMP_USE_ASSETS) {
+        discordpp::ActivityAssets assets{}; assets.SetLargeImage(YTMP_ASSET_KEY);
+        assets.SetLargeText(UTF8(PresenceText(album.length ? album : @"YouTube Music"))); activity.SetAssets(assets);
+    }
+    BOOL withTimes = payloadMode == 0 && duration > 0 && elapsed <= duration && fabs(rate-1)<0.001;
+    if (withTimes) {
         discordpp::ActivityTimestamps times{};
         times.SetStart((uint64_t)(MAX(0,start)*1000));
         times.SetEnd((uint64_t)(MAX(0,start+duration)*1000)); activity.SetTimestamps(times);
     }
     auto epoch = generation;
+    auto revision = metadataRevision;
+    YTMPLog(@"presence_send",@{@"mode":@(payloadMode),@"details":PresenceText(title),
+        @"state":PresenceText(artist),@"duration":@(duration),@"elapsed":@(elapsed),
+        @"rate":@(rate),@"timestamps":@(withTimes),@"assets":@(payloadMode == 0 && YTMP_USE_ASSETS)});
     inFlight = YES; lastSend = now;
-    client->UpdateRichPresence(activity, [self, epoch, fingerprint, start](auto result) {
-        inFlight = NO;
+    client->UpdateRichPresence(activity, [self, epoch, revision, fingerprint, start](auto result) {
+        LogResult(@"presence_result",result);
         if (epoch != generation) return;
+        inFlight = NO;
         NSDictionary *current = MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo;
         if (![self enabled] || ![self isPlaying:current] || !Text(current[MPMediaItemPropertyTitle]).length) {
             client->ClearRichPresence(); published = NO; return;
         }
-        if (result.Successful()) { published = YES; lastFingerprint = fingerprint; lastStart = start; }
-        else { nextAttempt = NSDate.date.timeIntervalSince1970 + 30; self.status = @"Presence更新失敗：30秒後に再試行"; }
+        if (result.Successful()) {
+            published = YES; self.status = payloadMode == 2 ? @"共有中（互換表示）" : @"共有中";
+            if (revision == metadataRevision) { lastFingerprint = fingerprint; lastStart = start; }
+        } else {
+            int http = (int)result.Status();
+            // Only degrade payload on validation errors, never on auth/network failures.
+            if ((http == 400 || result.ErrorCode() == 50035) && payloadMode < 2) {
+                ++payloadMode; nextAttempt = NSDate.date.timeIntervalSince1970 + 15;
+                self.status = @"送信内容を簡略化して再試行";
+                YTMPLog(@"payload_fallback",@{@"mode":@(payloadMode)});
+            } else if (http == 401 || http == 403 || http == 400) {
+                blockedPayload = YES;
+                self.status = [NSString stringWithFormat:@"更新失敗 HTTP %d / code %d：ログを確認",http,result.ErrorCode()];
+            } else {
+                double delay = http == 429 ? MAX(30,Number(@(result.RetryAfter()),30)) : 30;
+                nextAttempt = NSDate.date.timeIntervalSince1970 + delay;
+                self.status = [NSString stringWithFormat:@"更新失敗 HTTP %d / code %d：再試行待ち",http,result.ErrorCode()];
+            }
+        }
     });
 }
 - (void)noteMetadata:(NSDictionary *)info {
+    ++metadataRevision;
     double now = NSDate.date.timeIntervalSince1970;
     double elapsed = Number(info[MPNowPlayingInfoPropertyElapsedPlaybackTime], -1);
     double rate = Number(info[MPNowPlayingInfoPropertyPlaybackRate], 1);
-    if (elapsed >= 0 && rate > 0 && fabs((now-elapsed/rate)-lastStart) > 3) {
-        lastStart = now-elapsed/rate; lastFingerprint = nil;
+    double duration = MAX(0,Number(info[MPMediaItemPropertyPlaybackDuration],0));
+    NSString *fingerprint = [NSString stringWithFormat:@"%@\n%@\n%@\n%.1f\n%.2f",
+        Text(info[MPMediaItemPropertyTitle]),Text(info[MPMediaItemPropertyArtist]),
+        Text(info[MPMediaItemPropertyAlbumTitle]),duration,rate];
+    if (elapsed >= 0 && rate > 0 && (![fingerprint isEqual:sampleFingerprint] || fabs((now-elapsed/rate)-sampleStart)>3)) {
+        sampleStart = now-elapsed/rate; sampleFingerprint = fingerprint; lastFingerprint = nil;
+        YTMPLog(@"timeline_update",@{@"elapsed":@(elapsed),@"duration":@(duration),@"rate":@(rate)});
     }
     [self tick];
 }
@@ -292,12 +385,24 @@ static UIViewController *TopController(void) {
 static void PresentSettings(void) {
     YTMPManager *m = [YTMPManager shared];
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Discord Rich Presence"
-        message:[NSString stringWithFormat:@"状態：%@\n曲名・アーティストをDiscordへ共有します。",m.status]
+        message:[NSString stringWithFormat:@"状態：%@\nログ：Documents/YTMusicPresence/presence.jsonl",m.status]
         preferredStyle:UIAlertControllerStyleAlert];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Discordと連携 / 再連携" style:UIAlertActionStyleDefault
         handler:^(UIAlertAction *a){ [m login]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"共有を再開" style:UIAlertActionStyleDefault
-        handler:^(UIAlertAction *a){ [NSUserDefaults.standardUserDefaults setBool:YES forKey:EnabledKey]; [m resume]; }]];
+        handler:^(UIAlertAction *a){ [m retryPresence]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"診断ログを共有" style:UIAlertActionStyleDefault
+        handler:^(UIAlertAction *a){
+            YTMPLog(@"log_export",@{}); YTMPFlushLogs();
+            NSMutableArray *files = [NSMutableArray arrayWithObject:YTMPLogFileURL()];
+            NSURL *previous = [[YTMPLogFileURL() URLByDeletingLastPathComponent] URLByAppendingPathComponent:@"presence.previous.jsonl"];
+            if ([NSFileManager.defaultManager fileExistsAtPath:previous.path]) [files addObject:previous];
+            UIActivityViewController *share = [[UIActivityViewController alloc] initWithActivityItems:files applicationActivities:nil];
+            UIViewController *vc = TopController();
+            share.popoverPresentationController.sourceView = vc.view;
+            share.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(vc.view.bounds),CGRectGetMidY(vc.view.bounds),1,1);
+            dispatch_async(dispatch_get_main_queue(), ^{ [vc presentViewController:share animated:YES completion:nil]; });
+        }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"共有を停止" style:UIAlertActionStyleDefault
         handler:^(UIAlertAction *a){ [m disable]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"連携を解除" style:UIAlertActionStyleDestructive

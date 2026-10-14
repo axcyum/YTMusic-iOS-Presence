@@ -36,6 +36,8 @@ def main():
     (build/'Config.h').write_text(f'#define YTMP_APPLICATION_ID {appid}ULL\n'
         f'#define YTMP_APPLICATION_ID_STRING {json.dumps(appid)}\n'
         f'#define YTMP_ASSET_KEY {json.dumps(asset)}\n')
+    with (build/'Config.h').open('a') as header:
+        header.write(f'#define YTMP_USE_ASSETS {1 if config.get("use_assets",False) else 0}\n')
     sysroot = subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'], text=True).strip()
     dylib = build/'YTMusicPresence.dylib'
     run(['xcrun','--sdk','iphoneos','clang++','-dynamiclib','-std=c++20','-fobjc-arc','-arch','arm64',
@@ -43,7 +45,7 @@ def main():
         '-I'+str(build),'-F'+str(fw.parent),'-framework','discord_partner_sdk',
         '-framework','Foundation','-framework','UIKit','-framework','MediaPlayer','-framework','Security',
         '-Wl,-install_name,@rpath/YTMusicPresence.dylib','-Wl,-rpath,@loader_path',
-        str(root/'src'/'Presence.mm'),'-o',str(dylib)])
+        str(root/'src'/'Presence.mm'),str(root/'src'/'Logger.mm'),'-o',str(dylib)])
     run(['otool','-L',str(dylib)])
     if a.ipa:
         run([sys.executable,str(root/'tools'/'package_ipa.py'),'--ipa',a.ipa,

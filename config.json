@@ -1,5 +1,6 @@
 {
   "application_id": "1559887091171852310",
   "minimum_ios": "16.0",
-  "asset_key": "ytmusic"
+  "asset_key": "ytmusic",
+  "use_assets": false
 }

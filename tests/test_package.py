@@ -36,6 +36,8 @@ class PackageTest(unittest.TestCase):
             with zipfile.ZipFile(out) as z:
                 final = plistlib.loads(z.read(prefix+'Info.plist'))
                 self.assertEqual(final['UIBackgroundModes'],['audio'])
+                self.assertTrue(final['UIFileSharingEnabled'])
+                self.assertTrue(final['LSSupportsOpeningDocumentsInPlace'])
                 self.assertEqual(final['CFBundleURLTypes'][0]['CFBundleURLSchemes'],['existing'])
                 self.assertIn('discord-1559887091171852310',final['CFBundleURLTypes'][1]['CFBundleURLSchemes'])
                 self.assertEqual(z.read(prefix+'Frameworks/YTMusicUltimate.dylib'),b'unchanged-existing-tweak')

@@ -58,6 +58,8 @@ def package(source, dylib, framework, output, config):
             urltypes.append({'CFBundleURLName':'YTMusicPresence.oauth', 'CFBundleURLSchemes':[scheme]})
         queries = info.setdefault('LSApplicationQueriesSchemes', [])
         if 'discord' not in queries: queries.append('discord')
+        info['UIFileSharingEnabled'] = True
+        info['LSSupportsOpeningDocumentsInPlace'] = True
         changes = {info_name:plistlib.dumps(info, fmt=plistlib.FMT_BINARY), exe_name:after,
             root+'Frameworks/YTMusicPresence.dylib':tweak}
         prefix = root+'Frameworks/'+framework.name+'/'
