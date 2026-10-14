@@ -1,3 +1,6 @@
+  
+> [!IMPORTANT]
+> 個人的にOpenAi GPT-6.1 Solで遊んだ成果物です。安全性は知りません。
 <p align="center">
   <img src="https://cdn.simpleicons.org/youtubemusic/FF0033" alt="YouTube Music" width="128" height="128">
 </p>
