@@ -2,9 +2,9 @@
 
 iPhone内のYouTube MusicからDiscord Social SDKへ直接Rich Presenceを送る、独立したインジェクション用dylibの研究用実装です。PCや中継サーバーを稼働させる構成ではありません。
 
-**現在の状態：公式Discord Social SDK 1.10.19337を用い、GitHub ActionsでiOS arm64のコンパイルと未署名IPA生成に成功しました。OAuthの往復、Discordへの実送信、実機でのバックグラウンド動作は未検証です。インストール前に全ネストコードの再署名が必要です。**
+**現在の状態：公式Discord Social SDK 1.10.19337でiOS arm64のコンパイルと未署名IPA生成を確認済みです。診断ログ付きv2では利用者からPresence更新の改善報告を受けています。サムネイル対応v3の実機での画像表示は確認待ちです。インストール前に全ネストコードの再署名が必要です。**
 
-診断ログ付き版のビルド：[Actions run 38559399293](https://github.com/axcyum/YTMusicPresence/actions/runs/38559399293)。入力は提供されたYouTube Music 9.26.2 IPAと公式SDKのrelease用iOS xcframeworkです。
+サムネイル対応版のビルド：[Actions run 38560641960](https://github.com/axcyum/YTMusicPresence/actions/runs/38560641960)。入力は提供されたYouTube Music 9.26.2 IPAと公式SDKのrelease用iOS xcframeworkです。
 
 ## 構成
 
