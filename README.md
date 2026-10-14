@@ -1,6 +1,8 @@
   
 > [!IMPORTANT]
-> 個人的にOpenAi GPT-6.1 Solで遊んだ成果物です。安全性は知りません。
+> 個人的にOpenAi GPT-6.1 Solで遊んだ成果物です。安全性は知りません。<br>
+> 入獄状態のiPhone18 Pro iOS27.0.1 + LiveContainerで動作しています。<br>
+> 脱獄状態のiPad Pro 11 2nd iPadOS 18.5で動作しています。
 <p align="center">
   <img width="128" height="128" alt="Untitled34_20261014215940" src="https://github.com/user-attachments/assets/998bfe20-c77b-4620-bfa3-2c785d16e330" />
 </p>
@@ -10,8 +12,12 @@
 iOS版YouTube Musicの再生情報をDiscord Social SDK経由でRich Presenceへ送信するObjective-C++ dylib。<br>
 <a href="https://github.com/dayanch96/YTMusicUltimate">YoutubeMusicUltimate</a> を一部参考に作成されました。
 </p>
+
 ## pictures
 <img width="1035" height="898" alt="{B85044D0-B601-4DA2-A879-D8CA8B5FAEE1}" src="https://github.com/user-attachments/assets/9766ae2a-b2f1-4df2-be4c-700fc678ac1f" />
+<img width="453" height="563" alt="{168C30CA-D29D-4C79-8463-46E723706B1F}" src="https://github.com/user-attachments/assets/7544edb6-cdf2-4025-8b11-49abd25f91be" />
+<img width="377" height="581" alt="{3D0FE39A-CED9-4A3B-9B38-E34B9695156D}" src="https://github.com/user-attachments/assets/d7f6063f-41fd-4733-a1a4-7256afe640d8" />
+
 
 ## Features
 
