@@ -29,13 +29,13 @@ static NSDictionary *TokenRead(void) {
     CFTypeRef value = NULL;
     if (SecItemCopyMatching((__bridge CFDictionaryRef)query, &value) != errSecSuccess) return nil;
     NSData *data = CFBridgingRelease(value);
-    id result = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    id result = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
     return [result isKindOfClass:NSDictionary.class] ? result : nil;
 }
 static BOOL TokenWrite(NSDictionary *tokens) {
     NSDictionary *key = @{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
         (__bridge id)kSecAttrService: TokenService, (__bridge id)kSecAttrAccount: Account};
-    NSData *data = [NSJSONSerialization dataWithJSONObject:tokens options:0 error:nil];
+    NSData *data = [NSJSONSerialization dataWithJSONObject:tokens options:0 error:NULL];
     if (!data) return NO;
     NSDictionary *attrs = @{(__bridge id)kSecValueData: data,
         (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly};
