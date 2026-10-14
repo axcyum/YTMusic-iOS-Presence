@@ -2,7 +2,9 @@
 
 iPhone内のYouTube MusicからDiscord Social SDKへ直接Rich Presenceを送る、独立したインジェクション用dylibの研究用実装です。PCや中継サーバーを稼働させる構成ではありません。
 
-**現在の状態：ソース実装とIPA組み込みツールを用意済み。公式SDK未取得のため、iOSコンパイル、OAuthの往復、Discordへの実送信、実機でのバックグラウンド動作は未検証です。完成済みのIPAはまだありません。**
+**現在の状態：公式Discord Social SDK 1.10.19337を用い、GitHub ActionsでiOS arm64のコンパイルと未署名IPA生成に成功しました。OAuthの往復、Discordへの実送信、実機でのバックグラウンド動作は未検証です。インストール前に全ネストコードの再署名が必要です。**
+
+確認済みビルド：[Actions run 38557547261](https://github.com/axcyum/YTMusicPresence/actions/runs/38557547261)。入力は提供されたYouTube Music 9.26.2 IPAと公式SDKのrelease用iOS xcframeworkです。
 
 ## 構成
 
@@ -34,7 +36,7 @@ SDKは公式配布物を利用してください。このリポジトリには�
 
 ## GitHub Actionsでビルドする場合
 
-ワークフロー `.github/workflows/build-ios.yml` を用意しています。GitHubのmacOS runnerを使うため、自分のMacは不要です。SDK未取得のため、現時点ではワークフローのiOSビルドは未実行です。
+ワークフロー `.github/workflows/build-ios.yml` を用意しています。GitHubのmacOS runnerを使うため、自分のMacは不要です。公式SDK 1.10.19337でビルドとIPA生成を確認済みです。
 
 1. この**非公開リポジトリ**のReleasesで、タグ`build-inputs`のReleaseを作成する。
 2. 次の2ファイルをRelease assetsへ追加してPublishする。
@@ -46,7 +48,7 @@ SDKは公式配布物を利用してください。このリポジトリには�
 
 入力ファイルはGitのソース管理に追加しません。この方式ではSecretsの手動登録、Bot Token、Client Secret、個人用GitHub Tokenも不要です。ワークフロー内のGitHub TokenはGitHubが自動的に渡します。
 
-コンパイルは公式SDKとの最初の互換性確認にもなります。ビルドが失敗した場合は、その実行のエラーログでSDKヘッダやフレームワーク形式に合わせた修正が必要です。ワークフローの追加だけでコンパイルや動作を確認済みにはなりません。
+今後SDKを更新してビルドが失敗した場合は、その実行のエラーログでSDKヘッダやフレームワーク形式に合わせた修正が必要です。ビルド成功は実機での動作成功を保証しません。
 
 ## MacでのビルドとIPAへの組み込み
 
@@ -92,7 +94,7 @@ IPA組み込み時は次を実行します。
 - iOSがアプリをサスペンド・強制終了すると、タイマーや消去処理は動けません。無音再生による常駐は実装していません。通常の音楽再生中に実行が継続するか、停止後にDiscord側表示がどう消えるかも要検証です。
 - OAuthのコールバック処理は公式SDKのiOS実装に依存します。YTMusicの既存AppDelegate/SceneDelegateとの共存はまだ検証していません。
 - 設定メニューは9.26.2内のprivateクラスに依存するため、将来の更新で調整が必要になる可能性があります。MPNowPlayingInfoCenter部分は公開MediaPlayer APIを利用します。
-- API呼び出しは公式資料を参照して実装していますが、SDKヘッダとのコンパイル確認は未実施です。
+- API呼び出しは公式資料を参照して実装し、公式SDK 1.10.19337でコンパイル・リンクを確認済みです。
 - Listening種類とアセット表示は、SDK・アプリ権限・Discordクライアントの挙動を実機で確認してください。
 - 「連携を解除」はローカル情報を削除し、SDKによるトークン失効も要求します。オフライン等で失効要求が失敗した場合はDiscordの設定からアプリ連携を解除してください。
 
