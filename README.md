@@ -1,6 +1,5 @@
   
 > [!IMPORTANT]
-> 個人的にOpenAi GPT-6.1 Solで遊んだ成果物です。安全性は知りません。<br>
 > 入獄状態のiPhone18 Pro iOS27.0.1 + LiveContainerで動作しています。<br>
 > 脱獄状態のiPad Pro 11 2nd iPadOS 18.5で動作しています。
 <p align="center">
